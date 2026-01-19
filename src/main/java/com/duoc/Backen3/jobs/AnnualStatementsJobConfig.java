@@ -8,8 +8,6 @@ import com.duoc.Backen3.support.BatchSkipListener;
 import com.duoc.Backen3.support.CsvFieldSetMappers;
 import com.duoc.Backen3.tasklets.AnnualReportTasklet;
 
-import lombok.RequiredArgsConstructor;
-
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.job.builder.JobBuilder;
@@ -22,71 +20,78 @@ import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.io.ResourceLoader;
-import org.springframework.core.task.TaskExecutor;               
+import org.springframework.core.task.TaskExecutor;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
 import javax.sql.DataSource;
 
 @Configuration
-@RequiredArgsConstructor
 public class AnnualStatementsJobConfig {
 
     private final FilePathsProperties props;
-
-    // bean de spring para cargar recursos
     private final ResourceLoader resourceLoader;
 
-    // bean que define el job anual (procesa y luego genera reporte)
+    // ---- Constructor explícito (reemplaza @RequiredArgsConstructor) ----
+    public AnnualStatementsJobConfig(FilePathsProperties props, ResourceLoader resourceLoader) {
+        this.props = props;
+        this.resourceLoader = resourceLoader;
+    }
+
+    // ----------------------- JOB -----------------------
     @Bean
     public Job annualStatementsJob(JobRepository jobRepository,
                                    Step annualStatementsStep,
                                    Step annualReportStep) {
         return new JobBuilder("annualStatementsJob", jobRepository)
-            .start(annualStatementsStep)
-            .next(annualReportStep)
-            .build();
+                .start(annualStatementsStep)
+                .next(annualReportStep)
+                .build();
     }
 
-    // bean que define el step chunk para leer y escribir (multithread)
+    // ----------------------- STEP CHUNK -----------------------
     @Bean
     public Step annualStatementsStep(JobRepository jobRepository,
                                      PlatformTransactionManager txManager,
                                      FlatFileItemReader<AnnualStatement> annualReader,
                                      JdbcBatchItemWriter<AnnualStatement> annualWriter,
-                                     TaskExecutor taskExecutor) {             // <-- NUEVO: se inyecta el executor
+                                     TaskExecutor taskExecutor) {
+
         return new StepBuilder("annualStatementsStep", jobRepository)
-            .<AnnualStatement, AnnualStatement>chunk(5, txManager)           // <-- cambiado a 5 (requisito Semana 2)
-            .reader(annualReader)                                            // reader csv
-            .processor(new AnnualStatementProcessor())                       // processor con reglas de auditoría
-            .writer(annualWriter)                                            // escribe los items procesados
-            .faultTolerant()                                                 // tolerancia a fallos
-            .skip(IllegalArgumentException.class)                            // omite errores de mapeo/validación
-            .skipLimit(500)                                                  // omite hasta 500 errores
-            .listener(new BatchSkipListener<AnnualStatement, AnnualStatement>()) // listener items omitidos
-            // --------- MULTITHREADING DEL STEP ----------
-            .taskExecutor(taskExecutor)                                      // ejecuta chunks en paralelo
-            .throttleLimit(3)                                                // usa 3 hilos
-            // -------------------------------------------
-            .build();
+                .<AnnualStatement, AnnualStatement>chunk(5, txManager) // requisito: chunk=5
+                .reader(annualReader)                                   // reader csv
+                .processor(new AnnualStatementProcessor())              // reglas de auditoría
+                .writer(annualWriter)                                   // persiste items
+                .faultTolerant()
+                .skip(IllegalArgumentException.class)                   // omite mapeo/validación inválidos
+                .skipLimit(500)
+                .listener(new BatchSkipListener<AnnualStatement, AnnualStatement>())
+                // --------- MULTITHREADING DEL STEP ----------
+                .taskExecutor(taskExecutor)
+                .throttleLimit(3)
+                // -------------------------------------------
+                .build();
     }
 
-    // bean que define el step tasklet para el reporte anual
+    // ----------------------- STEP TASKLET (reporte anual) -----------------------
     @Bean
     public Step annualReportStep(JobRepository jobRepository,
                                  PlatformTransactionManager txManager,
                                  NamedParameterJdbcTemplate jdbcTemplate) {
         return new StepBuilder("annualReportStep", jobRepository)
-            .tasklet(new AnnualReportTasklet(jdbcTemplate, props.getOutput().getAnnualReport()), txManager)
-            .build();
+                .tasklet(new AnnualReportTasklet(
+                        jdbcTemplate,
+                        props.getOutput().getAnnualReport() // ruta de salida configurada
+                ), txManager)
+                .build();
     }
 
-    // bean que define el reader del archivo CSV
+    // ----------------------- READER CSV -----------------------
     @Bean
     public FlatFileItemReader<AnnualStatement> annualReader() {
         FlatFileItemReader<AnnualStatement> reader = new FlatFileItemReader<>();
 
-        // define el recurso CSV desde application properties
+        // define el recurso CSV desde application properties (classpath: o file:)
         reader.setResource(resourceLoader.getResource(props.getFiles().getAnnualStatements()));
 
         // omite el header del CSV
@@ -96,6 +101,7 @@ public class AnnualStatementsJobConfig {
         DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
         tokenizer.setDelimiter(",");
         tokenizer.setNames("account_id", "year", "total_credits", "total_debits", "ending_balance");
+        tokenizer.setStrict(false); // tolera columnas extra/menos/espacios
 
         // mapeo línea a objeto AnnualStatement
         DefaultLineMapper<AnnualStatement> lineMapper = new DefaultLineMapper<>();
@@ -106,7 +112,7 @@ public class AnnualStatementsJobConfig {
         return reader;
     }
 
-    // bean que define el writer JDBC para persistir AnnualStatement
+    // ----------------------- WRITER JDBC -----------------------
     @Bean
     public JdbcBatchItemWriter<AnnualStatement> annualWriter(DataSource ds) {
         JdbcBatchItemWriter<AnnualStatement> writer = new JdbcBatchItemWriter<>();
@@ -116,13 +122,15 @@ public class AnnualStatementsJobConfig {
 
         // SQL de inserción con parámetros nombrados
         writer.setSql("""
-            INSERT INTO annual_statements(account_id, year, total_credits, total_debits, ending_balance, audit_flag, audit_note)
-            VALUES (:accountId, :year, :totalCredits, :totalDebits, :endingBalance, :auditFlag, :auditNote)
+            INSERT INTO annual_statements
+            (account_id, year, total_credits, total_debits, ending_balance, audit_flag, audit_note)
+            VALUES
+            (:accountId, :year, :totalCredits, :totalDebits, :endingBalance, :auditFlag, :auditNote)
         """);
 
-        // mapea propiedades del objeto a parámetros SQL
+        // mapea propiedades del objeto a parámetros SQL mediante BeanPropertySqlParameterSource
         writer.setItemSqlParameterSourceProvider(
-            org.springframework.jdbc.core.namedparam.BeanPropertySqlParameterSource::new
+                org.springframework.jdbc.core.namedparam.BeanPropertySqlParameterSource::new
         );
 
         return writer;

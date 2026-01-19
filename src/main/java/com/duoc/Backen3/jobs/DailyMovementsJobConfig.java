@@ -8,11 +8,10 @@ import com.duoc.Backen3.support.BatchSkipListener;
 import com.duoc.Backen3.support.CsvFieldSetMappers;
 import com.duoc.Backen3.tasklets.DailySummaryTasklet;
 
-import lombok.RequiredArgsConstructor;
-
 import org.springframework.batch.core.Job;
 import org.springframework.batch.core.Step;
 import org.springframework.batch.core.job.builder.JobBuilder;
+import org.springframework.batch.core.launch.support.RunIdIncrementer;
 import org.springframework.batch.core.repository.JobRepository;
 import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.database.JdbcBatchItemWriter;
@@ -30,14 +29,19 @@ import org.springframework.transaction.PlatformTransactionManager;
 import javax.sql.DataSource;
 
 @Configuration
-@RequiredArgsConstructor
 public class DailyMovementsJobConfig {
 
-    // propiedades con rutas de archivos
+    // rutas y salidas configurables (finabc.*)
     private final FilePathsProperties props;
 
-    // cargador de recursos para acceder a csv
+    // para cargar recursos del classpath/sistema
     private final ResourceLoader resourceLoader;
+
+    // Constructor explícito (evita depender de Lombok)
+    public DailyMovementsJobConfig(FilePathsProperties props, ResourceLoader resourceLoader) {
+        this.props = props;
+        this.resourceLoader = resourceLoader;
+    }
 
     // ----------------------- JOB -----------------------
     @Bean
@@ -45,8 +49,9 @@ public class DailyMovementsJobConfig {
                                  Step dailyMovementsStep,
                                  Step dailySummaryStep) {
         return new JobBuilder("dailyMovementsJob", jobRepository)
-                .start(dailyMovementsStep)   // primero procesa
-                .next(dailySummaryStep)      // luego genera el resumen
+                .incrementer(new RunIdIncrementer())  // ejecuciones únicas con run.id
+                .start(dailyMovementsStep)             // 1) procesa CSV -> DB
+                .next(dailySummaryStep)                // 2) genera resumen (tasklet)
                 .build();
     }
 
@@ -59,18 +64,18 @@ public class DailyMovementsJobConfig {
                                    TaskExecutor taskExecutor) {
 
         return new StepBuilder("dailyMovementsStep", jobRepository)
-                .<DailyTransaction, DailyTransaction>chunk(5, txManager) // requisito: chunk de 5
+                .<DailyTransaction, DailyTransaction>chunk(5, txManager) // chunk de 5
                 .reader(dailyTxReader)
                 .processor(new DailyTransactionProcessor())
                 .writer(dailyTxWriter)
                 .faultTolerant()
-                .skip(IllegalArgumentException.class)    // omite validaciones/mapeos inválidos
+                .skip(IllegalArgumentException.class)   // omite mapeos/validaciones inválidas
                 .skipLimit(1000)
-                .retry(Exception.class)                  // ✅ OBLIGATORIO si usas retryLimit
-                .retryLimit(3)                           // reintenta 3 veces errores transitorios
+                .retry(Exception.class)                 // requerido si usas retryLimit
+                .retryLimit(3)                          // 3 reintentos a fallas transitorias
                 .listener(new BatchSkipListener<DailyTransaction, DailyTransaction>())
-                .taskExecutor(taskExecutor)              // multihilo
-                .throttleLimit(3)                        // 3 hilos (pauta)
+                .taskExecutor(taskExecutor)             // multihilo
+                .throttleLimit(3)                       // máximo 3 hilos
                 .build();
     }
 
@@ -80,7 +85,10 @@ public class DailyMovementsJobConfig {
                                  PlatformTransactionManager txManager,
                                  NamedParameterJdbcTemplate jdbcTemplate) {
         return new StepBuilder("dailySummaryStep", jobRepository)
-                .tasklet(new DailySummaryTasklet(jdbcTemplate, props.getOutput().getDailySummary()), txManager)
+                .tasklet(new DailySummaryTasklet(
+                        jdbcTemplate,
+                        props.getOutput().getDailySummary() // ruta de salida
+                ), txManager)
                 .build();
     }
 
@@ -88,12 +96,14 @@ public class DailyMovementsJobConfig {
     @Bean
     public FlatFileItemReader<DailyTransaction> dailyTxReader() {
         FlatFileItemReader<DailyTransaction> reader = new FlatFileItemReader<>();
+        // Soporta classpath: o file:
         reader.setResource(resourceLoader.getResource(props.getFiles().getDailyTransactions()));
-        reader.setLinesToSkip(1);
+        reader.setLinesToSkip(1); // omite header
 
         DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
         tokenizer.setDelimiter(",");
         tokenizer.setNames("tx_id", "account_id", "tx_timestamp", "amount", "channel");
+        tokenizer.setStrict(false); // tolerante ante columnas extra/menos
 
         DefaultLineMapper<DailyTransaction> lineMapper = new DefaultLineMapper<>();
         lineMapper.setLineTokenizer(tokenizer);
@@ -106,16 +116,14 @@ public class DailyMovementsJobConfig {
     // ----------------------- WRITER JDBC -----------------------
     @Bean
     public JdbcBatchItemWriter<DailyTransaction> dailyTxWriter(DataSource dataSource) {
-        // builder recomendado en Spring Batch 5
         return new JdbcBatchItemWriterBuilder<DailyTransaction>()
                 .dataSource(dataSource)
-                .sql("""
-                     INSERT INTO daily_transactions
-                     (tx_id, account_id, tx_timestamp, amount, channel, anomaly, anomaly_reason)
-                     VALUES
-                     (:txId, :accountId, :txTimestamp, :amount, :channel, :anomaly, :anomalyReason)
-                     """)
-                .beanMapped() // usa BeanPropertyItemSqlParameterSourceProvider internamente
+                .sql(
+                    "INSERT INTO daily_transactions " +
+                    "(tx_id, account_id, tx_timestamp, amount, channel, anomaly, anomaly_reason) " +
+                    "VALUES (:txId, :accountId, :txTimestamp, :amount, :channel, :anomaly, :anomalyReason)"
+                )
+                .beanMapped() // mapea propiedades del bean a parámetros SQL
                 .build();
     }
 }
