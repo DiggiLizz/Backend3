@@ -1,0 +1,7 @@
+---
+type: specs.openrewrite.org/v1beta/recipe
+name: com.duoc.migrate-java-21
+displayName: Migrate to Java 21
+description: Migrate Java projects to Java 21
+recipeList:
+  - org.openrewrite.java.migrate.UpgradeToJava21
