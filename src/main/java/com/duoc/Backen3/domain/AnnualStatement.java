@@ -14,7 +14,7 @@ public class AnnualStatement {
     // Constructor vacío para Spring Batch
     public AnnualStatement() {}
 
-    // GETTERS (Esto arregla el error en AnnualStatementProcessor)
+    // GETTERS 
     public BigDecimal getEndingBalance() { return endingBalance; }
     public BigDecimal getTotalDebits() { return totalDebits; }
     public BigDecimal getTotalCredits() { return totalCredits; }

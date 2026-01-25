@@ -37,7 +37,7 @@ public class AccountInterestProcessor
         // 4. Cálculo del nuevo saldo
         BigDecimal newBalance = acc.getBalance().add(interest);
 
-        // 5. Construcción MANUAL (Sin Builder) para evitar errores del IDE
+        // 5. Construcción MANUAL (Sin Builder) para evitar errores del IDE, lombok me daba error todo el rato
         InterestResult result = new InterestResult();
         result.setAccountId(acc.getAccountId());
         result.setQuarter(this.quarter);

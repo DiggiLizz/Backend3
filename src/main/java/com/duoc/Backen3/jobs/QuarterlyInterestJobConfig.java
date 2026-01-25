@@ -43,11 +43,11 @@ public class QuarterlyInterestJobConfig {
     public Job quarterlyInterestJob(
         JobRepository jobRepository,
         Step quarterlyInterestStep,
-        JobLoggerListener listener // Inyectas el mismo
+        JobLoggerListener listener 
     ) {
         return new JobBuilder("quarterlyInterestJob", jobRepository)
             .start(quarterlyInterestStep)
-            .listener(listener) // Lo conectas
+            .listener(listener) 
             .build();
     }
 
@@ -58,7 +58,7 @@ public class QuarterlyInterestJobConfig {
             FlatFileItemReader<Account> accountsReader,
             JdbcBatchItemWriter<InterestResult> interestWriter,
             JdbcBatchItemWriter<InterestResult> accountBalanceWriter,
-            TaskExecutor interestTaskExecutor // Inyectamos el executor optimizado
+            TaskExecutor interestTaskExecutor 
     ) {
         String quarter = Year.now().getValue() + "Q1";
 
@@ -67,7 +67,6 @@ public class QuarterlyInterestJobConfig {
                 .reader(accountsReader)
                 .processor(new AccountInterestProcessor(quarter))
                 .writer(items -> {
-                    // Acción Kinestésica: Doble escritura para integridad
                     interestWriter.write(items);
                     accountBalanceWriter.write(items);
                 })

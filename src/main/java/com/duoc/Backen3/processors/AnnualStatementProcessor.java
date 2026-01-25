@@ -1,8 +1,10 @@
 package com.duoc.Backen3.processors;
 
-import com.duoc.Backen3.domain.AnnualStatement;
-import org.springframework.batch.item.ItemProcessor;
 import java.math.BigDecimal;
+
+import org.springframework.batch.item.ItemProcessor;
+
+import com.duoc.Backen3.domain.AnnualStatement;
 
 public class AnnualStatementProcessor 
         implements ItemProcessor<AnnualStatement, AnnualStatement> {
@@ -24,7 +26,7 @@ public class AnnualStatementProcessor
             note.append("excessive_debits;");
         }
 
-        // Asignación compatible con Oracle CHAR(1)
+        // Asignación compatible con Oracle 
         st.setAuditFlag(audit ? "Y" : "N");
         st.setAuditNote(audit ? note.toString() : null);
 
