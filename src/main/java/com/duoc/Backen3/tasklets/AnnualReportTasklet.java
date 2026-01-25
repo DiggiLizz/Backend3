@@ -1,15 +1,15 @@
 package com.duoc.Backen3.tasklets;
 
+import java.io.File;
+import java.io.FileWriter;
+import java.util.List;
+import java.util.Map;
+
 import org.springframework.batch.core.StepContribution;
 import org.springframework.batch.core.scope.context.ChunkContext;
 import org.springframework.batch.core.step.tasklet.Tasklet;
 import org.springframework.batch.repeat.RepeatStatus;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-
-import java.io.File;
-import java.io.FileWriter;
-import java.util.List;
-import java.util.Map;
 
 // tasklet encargado de generar el reporte anual de auditoria
 public class AnnualReportTasklet implements Tasklet {
@@ -41,7 +41,7 @@ public class AnnualReportTasklet implements Tasklet {
             jdbc.queryForList("""
             SELECT account_id, year, audit_note
             FROM annual_statements
-            WHERE audit_flag = true
+            WHERE audit_flag = 'true'
             ORDER BY year DESC, account_id
             """, Map.of());
 

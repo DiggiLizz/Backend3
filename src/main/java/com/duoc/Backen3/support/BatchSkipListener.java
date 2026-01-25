@@ -1,29 +1,26 @@
 package com.duoc.Backen3.support;
 
-import lombok.extern.slf4j.Slf4j;
-
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.batch.core.SkipListener;
 
-// listener para registrar eventos de omision durante el procesamiento batch
-@Slf4j
-public class BatchSkipListener<T, S>
-        implements SkipListener<T, S> {
+public class BatchSkipListener<T, S> implements SkipListener<T, S> {
 
-    // se ejecuta cuando ocurre un error durante la lectura
+    // Logger estándar sin depender de Lombok
+    private static final Logger log = LoggerFactory.getLogger(BatchSkipListener.class);
+
     @Override
     public void onSkipInRead(Throwable t) {
-        log.warn("skip in read: {}", t.getMessage());
+        log.warn("Error en lectura: {}", t.getMessage());
     }
 
-    // se ejecuta cuando ocurre un error durante la escritura
     @Override
     public void onSkipInWrite(S item, Throwable t) {
-        log.warn("skip in write item={} error={}", item, t.getMessage());
+        log.warn("Error en escritura. Item: {} | Error: {}", item, t.getMessage());
     }
 
-    // se ejecuta cuando ocurre un error durante el procesamiento
     @Override
     public void onSkipInProcess(T item, Throwable t) {
-        log.warn("skip in process item={} error={}", item, t.getMessage());
+        log.warn("Error en proceso. Item: {} | Error: {}", item, t.getMessage());
     }
 }
