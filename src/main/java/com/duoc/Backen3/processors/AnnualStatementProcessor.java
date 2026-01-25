@@ -1,49 +1,33 @@
 package com.duoc.Backen3.processors;
 
 import com.duoc.Backen3.domain.AnnualStatement;
-
 import org.springframework.batch.item.ItemProcessor;
-
 import java.math.BigDecimal;
 
-// processor encargado de evaluar reglas de auditoria en estados anuales
-public class AnnualStatementProcessor
+public class AnnualStatementProcessor 
         implements ItemProcessor<AnnualStatement, AnnualStatement> {
 
-    // metodo principal que valida y marca estados para auditoria
     @Override
     public AnnualStatement process(AnnualStatement st) {
-
-        // indicador de auditoria
         boolean audit = false;
+        StringBuilder note = new StringBuilder();
 
-        // nota asociada a la auditoria
-        String note = null;
-
-        // regla 1: saldo final negativo
+        // Regla 1: Saldo final negativo
         if (st.getEndingBalance().compareTo(BigDecimal.ZERO) < 0) {
-        audit = true;
-        note = "negative_ending_balance";
+            audit = true;
+            note.append("negative_ending_balance;");
         }
 
-        // regla 2: debitos excesivamente altos en relacion a los creditos
-        if (st.getTotalDebits()
-            .compareTo(st.getTotalCredits().multiply(new BigDecimal("3"))) > 0) {
-
-        audit = true;
-
-        // concatena observaciones si ya existe una nota previa
-        note = (note == null)
-            ? "debits_too_high"
-            : note + ";debits_too_high";
+        // Regla 2: Débitos excesivos (ejemplo: débitos > créditos * 2)
+        if (st.getTotalDebits().compareTo(st.getTotalCredits().multiply(new BigDecimal("2"))) > 0) {
+            audit = true;
+            note.append("excessive_debits;");
         }
 
-        // asigna resultados de auditoria al estado anual
-        st.setAuditFlag(audit);
-        st.setAuditNote(note);
+        // Asignación compatible con Oracle CHAR(1)
+        st.setAuditFlag(audit ? "Y" : "N");
+        st.setAuditNote(audit ? note.toString() : null);
 
-        // retorna el objeto procesado
         return st;
     }
 }
-

@@ -1,16 +1,16 @@
 package com.duoc.Backen3.tasklets;
 
-import org.springframework.batch.core.StepContribution;
-import org.springframework.batch.core.scope.context.ChunkContext;
-import org.springframework.batch.core.step.tasklet.Tasklet;
-import org.springframework.batch.repeat.RepeatStatus;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
-
 import java.io.File;
 import java.io.FileWriter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
+
+import org.springframework.batch.core.StepContribution;
+import org.springframework.batch.core.scope.context.ChunkContext;
+import org.springframework.batch.core.step.tasklet.Tasklet;
+import org.springframework.batch.repeat.RepeatStatus;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 
 // tasklet encargado de generar el resumen diario de transacciones
 public class DailySummaryTasklet implements Tasklet {
@@ -49,7 +49,7 @@ public class DailySummaryTasklet implements Tasklet {
 
         // obtiene el total de transacciones marcadas como anomalias
         Integer anomalies = jdbc.queryForObject(
-            "SELECT COUNT(*) FROM daily_transactions WHERE anomaly = true",
+            "SELECT COUNT(*) FROM daily_transactions WHERE anomaly = 'true'", 
             Map.of(),
             Integer.class
         );

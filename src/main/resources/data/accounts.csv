@@ -1,0 +1,4 @@
+account_id,account_type,balance,annual_rate
+ACC-1001,SAVINGS,150000.00,0.04
+ACC-1002,SAVINGS,50000.00,0.035
+ACC-2001,LOAN,300000.00,0.12

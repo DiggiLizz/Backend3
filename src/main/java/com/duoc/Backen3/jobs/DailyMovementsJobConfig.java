@@ -1,8 +1,8 @@
-
 package com.duoc.Backen3.jobs;
 
 import com.duoc.Backen3.config.FilePathsProperties;
 import com.duoc.Backen3.domain.DailyTransaction;
+import com.duoc.Backen3.listeners.JobLoggerListener;
 import com.duoc.Backen3.processors.DailyTransactionProcessor;
 import com.duoc.Backen3.support.BatchSkipListener;
 import com.duoc.Backen3.support.CsvFieldSetMappers;
@@ -17,12 +17,16 @@ import org.springframework.batch.core.step.builder.StepBuilder;
 import org.springframework.batch.item.database.JdbcBatchItemWriter;
 import org.springframework.batch.item.database.builder.JdbcBatchItemWriterBuilder;
 import org.springframework.batch.item.file.FlatFileItemReader;
+import org.springframework.batch.item.file.builder.FlatFileItemReaderBuilder;
+import org.springframework.batch.item.file.mapping.BeanWrapperFieldSetMapper;
 import org.springframework.batch.item.file.mapping.DefaultLineMapper;
 import org.springframework.batch.item.file.transform.DelimitedLineTokenizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.core.io.ResourceLoader;
 import org.springframework.core.task.TaskExecutor;
+import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor; // Importante
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.transaction.PlatformTransactionManager;
 
@@ -31,31 +35,26 @@ import javax.sql.DataSource;
 @Configuration
 public class DailyMovementsJobConfig {
 
-    // rutas y salidas configurables (finabc.*)
     private final FilePathsProperties props;
-
-    // para cargar recursos del classpath/sistema
     private final ResourceLoader resourceLoader;
 
-    // Constructor explícito (evita depender de Lombok)
     public DailyMovementsJobConfig(FilePathsProperties props, ResourceLoader resourceLoader) {
         this.props = props;
         this.resourceLoader = resourceLoader;
     }
 
-    // ----------------------- JOB -----------------------
     @Bean
-    public Job dailyMovementsJob(JobRepository jobRepository,
-                                 Step dailyMovementsStep,
-                                 Step dailySummaryStep) {
+    public Job dailyMovementsJob(
+        JobRepository jobRepository,
+        Step dailyMovementsStep,
+        JobLoggerListener listener // Inyectas el mismo
+    ) {
         return new JobBuilder("dailyMovementsJob", jobRepository)
-                .incrementer(new RunIdIncrementer())  // ejecuciones únicas con run.id
-                .start(dailyMovementsStep)             // 1) procesa CSV -> DB
-                .next(dailySummaryStep)                // 2) genera resumen (tasklet)
-                .build();
+            .start(dailyMovementsStep)
+            .listener(listener) // Lo conectas
+            .build();
     }
 
-    // ----------------------- STEP CHUNK -----------------------
     @Bean
     public Step dailyMovementsStep(JobRepository jobRepository,
                                    PlatformTransactionManager txManager,
@@ -64,22 +63,29 @@ public class DailyMovementsJobConfig {
                                    TaskExecutor taskExecutor) {
 
         return new StepBuilder("dailyMovementsStep", jobRepository)
-                .<DailyTransaction, DailyTransaction>chunk(5, txManager) // chunk de 5
+                .<DailyTransaction, DailyTransaction>chunk(5, txManager)
                 .reader(dailyTxReader)
-                .processor(new DailyTransactionProcessor())
+                .processor(new DailyTransactionProcessor()) // Usamos el procesador manual
                 .writer(dailyTxWriter)
                 .faultTolerant()
-                .skip(IllegalArgumentException.class)   // omite mapeos/validaciones inválidas
-                .skipLimit(1000)
-                .retry(Exception.class)                 // requerido si usas retryLimit
-                .retryLimit(3)                          // 3 reintentos a fallas transitorias
+                .skip(Exception.class)
+                .skipLimit(10)
                 .listener(new BatchSkipListener<DailyTransaction, DailyTransaction>())
-                .taskExecutor(taskExecutor)             // multihilo
-                .throttleLimit(3)                       // máximo 3 hilos
+                .taskExecutor(taskExecutor) // Multihilo activo
                 .build();
     }
 
-    // ----------------------- STEP TASKLET (resumen) -----------------------
+    // Bean de Optimización (Criterio 6)
+    @Bean
+    public TaskExecutor taskExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setCorePoolSize(4);
+        executor.setMaxPoolSize(8);
+        executor.setThreadNamePrefix("DailyJob-");
+        executor.initialize();
+        return executor;
+    }
+
     @Bean
     public Step dailySummaryStep(JobRepository jobRepository,
                                  PlatformTransactionManager txManager,
@@ -87,43 +93,48 @@ public class DailyMovementsJobConfig {
         return new StepBuilder("dailySummaryStep", jobRepository)
                 .tasklet(new DailySummaryTasklet(
                         jdbcTemplate,
-                        props.getOutput().getDailySummary() // ruta de salida
+                        props.getOutput().getDailySummary()
                 ), txManager)
                 .build();
     }
 
-    // ----------------------- READER CSV -----------------------
     @Bean
-    public FlatFileItemReader<DailyTransaction> dailyTxReader() {
-        FlatFileItemReader<DailyTransaction> reader = new FlatFileItemReader<>();
-        // Soporta classpath: o file:
-        reader.setResource(resourceLoader.getResource(props.getFiles().getDailyTransactions()));
-        reader.setLinesToSkip(1); // omite header
-
-        DelimitedLineTokenizer tokenizer = new DelimitedLineTokenizer();
-        tokenizer.setDelimiter(",");
-        tokenizer.setNames("tx_id", "account_id", "tx_timestamp", "amount", "channel");
-        tokenizer.setStrict(false); // tolerante ante columnas extra/menos
-
-        DefaultLineMapper<DailyTransaction> lineMapper = new DefaultLineMapper<>();
-        lineMapper.setLineTokenizer(tokenizer);
-        lineMapper.setFieldSetMapper(CsvFieldSetMappers.dailyTxMapper());
-
-        reader.setLineMapper(lineMapper);
-        return reader;
+    public FlatFileItemReader<DailyTransaction> dailyMovementsReader() {
+        return new FlatFileItemReaderBuilder<DailyTransaction>()
+                .name("dailyMovementsReader")
+                // 1. Ruta corregida con subcarpeta 'data'
+                .resource(new ClassPathResource("data/daily_transactions.csv"))
+                // 2. Saltar encabezados para evitar el error de la línea 1
+                .linesToSkip(1)
+                .delimited()
+                // 3. Mapeo de nombres exacto a tu clase DailyTransaction
+                .names("txId", "accountId", "txTimestamp", "amount", "channel")
+                .fieldSetMapper(new BeanWrapperFieldSetMapper<DailyTransaction>() {{
+                    setTargetType(DailyTransaction.class);
+                    // 4. El "Traductor" de fechas para procesar la 'T' del ISO
+                    setCustomEditors(java.util.Collections.singletonMap(
+                        java.time.LocalDateTime.class, 
+                        new java.beans.PropertyEditorSupport() {
+                            @Override
+                            public void setAsText(String text) {
+                                // Convierte "2026-01-24T10:00:00" en un objeto Java real
+                                setValue(java.time.LocalDateTime.parse(text));
+                            }
+                        }
+                    ));
+                }})
+                .build();
     }
 
-    // ----------------------- WRITER JDBC -----------------------
     @Bean
     public JdbcBatchItemWriter<DailyTransaction> dailyTxWriter(DataSource dataSource) {
         return new JdbcBatchItemWriterBuilder<DailyTransaction>()
                 .dataSource(dataSource)
-                .sql(
-                    "INSERT INTO daily_transactions " +
-                    "(tx_id, account_id, tx_timestamp, amount, channel, anomaly, anomaly_reason) " +
-                    "VALUES (:txId, :accountId, :txTimestamp, :amount, :channel, :anomaly, :anomalyReason)"
-                )
-                .beanMapped() // mapea propiedades del bean a parámetros SQL
+                .sql("INSERT INTO daily_transactions (tx_id, account_id, tx_timestamp, amount, channel, anomaly, anomaly_reason) " +
+                    "VALUES (:txId, :accountId, :txTimestamp, :amount, :channel, :anomaly, :anomalyReason)")
+                .beanMapped()
                 .build();
     }
+
+    
 }

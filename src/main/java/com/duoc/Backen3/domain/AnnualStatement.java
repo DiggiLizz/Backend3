@@ -1,19 +1,34 @@
 package com.duoc.Backen3.domain;
 
-
-import lombok.*;
-
 import java.math.BigDecimal;
 
-@Getter @Setter @NoArgsConstructor @AllArgsConstructor @Builder
 public class AnnualStatement {
-  private String accountId;
-  private int year;
-  private BigDecimal totalCredits;
-  private BigDecimal totalDebits;
-  private BigDecimal endingBalance;
+    private String accountId;
+    private int year;
+    private BigDecimal totalCredits;
+    private BigDecimal totalDebits;
+    private BigDecimal endingBalance;
+    private String auditFlag;
+    private String auditNote;
 
-  private boolean auditFlag;
-  private String auditNote;
+    // Constructor vacío para Spring Batch
+    public AnnualStatement() {}
+
+    // GETTERS (Esto arregla el error en AnnualStatementProcessor)
+    public BigDecimal getEndingBalance() { return endingBalance; }
+    public BigDecimal getTotalDebits() { return totalDebits; }
+    public BigDecimal getTotalCredits() { return totalCredits; }
+    public String getAccountId() { return accountId; }
+    public int getYear() { return year; }
+    public String getAuditFlag() { return auditFlag; }
+    public String getAuditNote() { return auditNote; }
+
+    // SETTERS
+    public void setAccountId(String accountId) { this.accountId = accountId; }
+    public void setYear(int year) { this.year = year; }
+    public void setTotalCredits(BigDecimal totalCredits) { this.totalCredits = totalCredits; }
+    public void setTotalDebits(BigDecimal totalDebits) { this.totalDebits = totalDebits; }
+    public void setEndingBalance(BigDecimal endingBalance) { this.endingBalance = endingBalance; }
+    public void setAuditFlag(String auditFlag) { this.auditFlag = auditFlag; }
+    public void setAuditNote(String auditNote) { this.auditNote = auditNote; }
 }
-
